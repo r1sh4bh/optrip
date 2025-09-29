@@ -87,7 +87,7 @@ export default function PlanPage() {
 
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
             <p className="text-blue-900">
-              🚧 Route optimization is coming soon! We're working on parsing your Google Maps link
+              🚧 Route optimization is coming soon! We&apos;re working on parsing your Google Maps link
               and generating the optimal itinerary.
             </p>
           </div>
