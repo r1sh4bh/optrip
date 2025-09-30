@@ -18,6 +18,7 @@ interface MapDisplayProps {
   waypoints?: Waypoint[];
   avoidHighways?: boolean;
   avoidTolls?: boolean;
+  onDirectionsLoaded?: (result: google.maps.DirectionsResult) => void;
 }
 
 export function MapDisplay({
@@ -26,6 +27,7 @@ export function MapDisplay({
   waypoints = [],
   avoidHighways = false,
   avoidTolls = false,
+  onDirectionsLoaded,
 }: MapDisplayProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<google.maps.Map | null>(null);
@@ -82,6 +84,11 @@ export function MapDisplay({
           // Get route totals
           const totals = getRouteTotals(result);
           setRouteInfo(totals);
+
+          // Notify parent component
+          if (onDirectionsLoaded) {
+            onDirectionsLoaded(result);
+          }
         }
       } catch (err) {
         console.error("Error displaying route:", err);

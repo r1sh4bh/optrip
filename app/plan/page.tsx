@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { TripParameters } from "@/types";
+import { TripParameters, OptimizedRoute, Waypoint } from "@/types";
 import { Map, AlertCircle } from "lucide-react";
 import { MapDisplay } from "@/components/MapDisplay";
+import { ItineraryView } from "@/components/ItineraryView";
+import { optimizeRoute } from "@/lib/route-optimizer";
 
 interface ParsedRoute {
   origin: { name: string; lat: number; lng: number; address: string };
@@ -16,7 +18,9 @@ export default function PlanPage() {
   const router = useRouter();
   const [tripData, setTripData] = useState<TripParameters | null>(null);
   const [parsedRoute, setParsedRoute] = useState<ParsedRoute | null>(null);
+  const [optimizedRoute, setOptimizedRoute] = useState<OptimizedRoute | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isOptimizing, setIsOptimizing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -55,6 +59,47 @@ export default function PlanPage() {
       setError(err instanceof Error ? err.message : "Failed to parse Google Maps link");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleDirectionsLoaded = async (directionsResult: google.maps.DirectionsResult) => {
+    if (!parsedRoute || !tripData) return;
+
+    setIsOptimizing(true);
+    try {
+      // Build waypoints array including origin and destination
+      const allWaypoints: Waypoint[] = [
+        {
+          name: parsedRoute.origin.name,
+          location: { lat: parsedRoute.origin.lat, lng: parsedRoute.origin.lng },
+          address: parsedRoute.origin.address,
+        },
+        ...parsedRoute.waypoints.map((wp) => ({
+          name: wp.name,
+          location: { lat: wp.lat, lng: wp.lng },
+          address: wp.address,
+        })),
+        {
+          name: parsedRoute.destination.name,
+          location: { lat: parsedRoute.destination.lat, lng: parsedRoute.destination.lng },
+          address: parsedRoute.destination.address,
+        },
+      ];
+
+      // Optimize the route
+      const optimized = await optimizeRoute(directionsResult, allWaypoints, {
+        maxDrivingHours: tripData.maxDrivingHours,
+        departureTime: tripData.departureTime,
+        arrivalDeadline: tripData.arrivalDeadline,
+        preferredStopDuration: tripData.preferredStopDuration || 60,
+      });
+
+      setOptimizedRoute(optimized);
+    } catch (err) {
+      console.error("Error optimizing route:", err);
+      setError("Failed to optimize route");
+    } finally {
+      setIsOptimizing(false);
     }
   };
 
@@ -157,6 +202,16 @@ export default function PlanPage() {
             </div>
           )}
 
+          {/* Optimizing State */}
+          {isOptimizing && (
+            <div className="bg-white rounded-lg shadow p-8">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                <p className="text-gray-600">Optimizing your route...</p>
+              </div>
+            </div>
+          )}
+
           {/* Map Display */}
           {parsedRoute && !isLoading && !error && (
             <div className="space-y-6">
@@ -166,14 +221,13 @@ export default function PlanPage() {
                 waypoints={parsedRoute.waypoints}
                 avoidHighways={tripData.avoidHighways}
                 avoidTolls={tripData.avoidTolls}
+                onDirectionsLoaded={handleDirectionsLoaded}
               />
 
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
-                <p className="text-blue-900">
-                  🚧 Route optimization is coming soon! This shows your original route.
-                  Next, we&apos;ll break it down into daily segments based on your preferences.
-                </p>
-              </div>
+              {/* Optimized Itinerary */}
+              {optimizedRoute && !isOptimizing && (
+                <ItineraryView optimizedRoute={optimizedRoute} />
+              )}
             </div>
           )}
         </div>
