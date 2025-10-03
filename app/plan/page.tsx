@@ -7,6 +7,8 @@ import { Map, AlertCircle } from "lucide-react";
 import { MapDisplay } from "@/components/MapDisplay";
 import { ItineraryView } from "@/components/ItineraryView";
 import { optimizeRoute } from "@/lib/route-optimizer";
+import { RoutesApiResponse } from "@/lib/google-maps";
+import { exportToPDF, exportToCalendar, generateShareLink } from "@/lib/export-utils";
 
 interface ParsedRoute {
   origin: { name: string; lat: number; lng: number; address: string };
@@ -62,7 +64,7 @@ export default function PlanPage() {
     }
   };
 
-  const handleDirectionsLoaded = async (directionsResult: google.maps.DirectionsResult) => {
+  const handleRoutesApiDataLoaded = async (routesApiData: RoutesApiResponse) => {
     if (!parsedRoute || !tripData) return;
 
     setIsOptimizing(true);
@@ -86,8 +88,8 @@ export default function PlanPage() {
         },
       ];
 
-      // Optimize the route
-      const optimized = await optimizeRoute(directionsResult, allWaypoints, {
+      // Optimize the route using Routes API data
+      const optimized = await optimizeRoute(routesApiData, allWaypoints, {
         maxDrivingHours: tripData.maxDrivingHours,
         departureTime: tripData.departureTime,
         arrivalDeadline: tripData.arrivalDeadline,
@@ -221,12 +223,17 @@ export default function PlanPage() {
                 waypoints={parsedRoute.waypoints}
                 avoidHighways={tripData.avoidHighways}
                 avoidTolls={tripData.avoidTolls}
-                onDirectionsLoaded={handleDirectionsLoaded}
+                onRoutesApiDataLoaded={handleRoutesApiDataLoaded}
               />
 
               {/* Optimized Itinerary */}
               {optimizedRoute && !isOptimizing && (
-                <ItineraryView optimizedRoute={optimizedRoute} />
+                <ItineraryView
+                  optimizedRoute={optimizedRoute}
+                  onExportPDF={() => exportToPDF(optimizedRoute, "My Road Trip")}
+                  onExportCalendar={() => exportToCalendar(optimizedRoute, "My Road Trip")}
+                  onShare={() => generateShareLink(optimizedRoute, tripData)}
+                />
               )}
             </div>
           )}

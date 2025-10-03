@@ -1,4 +1,5 @@
 import { OptimizedRoute, OptimizedStop, RouteSegment, Waypoint } from "@/types";
+import { RoutesApiResponse, parseDuration } from "./google-maps";
 
 interface OptimizationParams {
   maxDrivingHours: number; // Maximum driving hours per day
@@ -9,13 +10,14 @@ interface OptimizationParams {
 
 /**
  * Optimize a route by breaking it into daily segments based on driving time limits
+ * Now supports Routes API response format
  */
 export async function optimizeRoute(
-  directionsResult: google.maps.DirectionsResult,
+  routeData: RoutesApiResponse,
   waypoints: Waypoint[],
   params: OptimizationParams
 ): Promise<OptimizedRoute> {
-  const route = directionsResult.routes[0];
+  const route = routeData.routes[0];
   if (!route) {
     throw new Error("No route found");
   }
@@ -23,14 +25,14 @@ export async function optimizeRoute(
   const legs = route.legs;
   const maxDrivingSeconds = params.maxDrivingHours * 3600;
 
-  // Build segments from legs
+  // Build segments from legs (Routes API format)
   const segments: RouteSegment[] = legs.map((leg, index) => ({
     from: waypoints[index],
     to: waypoints[index + 1],
-    distance: leg.distance?.value || 0,
-    duration: leg.duration?.value || 0,
-    drivingTime: (leg.duration?.value || 0) / 60, // Convert to minutes
-    polyline: leg.steps?.map(step => step.polyline?.points).filter(Boolean).join("") || "",
+    distance: leg.distanceMeters,
+    duration: parseDuration(leg.duration), // Convert "3600s" to 3600
+    drivingTime: parseDuration(leg.duration) / 60, // Convert to minutes
+    polyline: leg.steps?.map(step => step.polyline?.encodedPolyline).filter(Boolean).join("") || route.polyline?.encodedPolyline || "",
   }));
 
   // Calculate total distance and duration
@@ -163,61 +165,43 @@ function generateOptimizedStops(
 /**
  * Find points along route for optimal overnight stops
  * This is a more advanced version that finds intermediate cities/towns
+ * Updated to work with Routes API
  */
 export async function findOptimalStopPoints(
-  origin: google.maps.LatLngLiteral,
-  destination: google.maps.LatLngLiteral,
+  routeData: RoutesApiResponse,
   maxDrivingSeconds: number
-): Promise<google.maps.LatLngLiteral[]> {
-  // Calculate route
-  const directionsService = new google.maps.DirectionsService();
+): Promise<Array<{ lat: number; lng: number }>> {
+  const route = routeData.routes[0];
+  if (!route) {
+    throw new Error("No route found");
+  }
 
-  return new Promise((resolve, reject) => {
-    directionsService.route(
-      {
-        origin,
-        destination,
-        travelMode: google.maps.TravelMode.DRIVING,
-      },
-      (result, status) => {
-        if (status !== google.maps.DirectionsStatus.OK || !result) {
-          reject(new Error("Failed to calculate route"));
-          return;
-        }
+  const totalDuration = parseDuration(route.duration);
 
-        const route = result.routes[0];
-        const totalDuration = route.legs.reduce(
-          (sum, leg) => sum + (leg.duration?.value || 0),
-          0
-        );
+  // If trip is within one day, no stops needed
+  if (totalDuration <= maxDrivingSeconds) {
+    return [];
+  }
 
-        // If trip is within one day, no stops needed
-        if (totalDuration <= maxDrivingSeconds) {
-          resolve([]);
-          return;
-        }
+  // Find intermediate points along the route
+  const numStops = Math.ceil(totalDuration / maxDrivingSeconds) - 1;
+  const stopPoints: Array<{ lat: number; lng: number }> = [];
 
-        // Find intermediate points along the route
-        const numStops = Math.ceil(totalDuration / maxDrivingSeconds) - 1;
-        const stopPoints: google.maps.LatLngLiteral[] = [];
+  // Use leg positions to approximate stop points
+  const legs = route.legs;
+  const stopInterval = legs.length / (numStops + 1);
 
-        const path = route.overview_path;
-        const segmentDistance = path.length / (numStops + 1);
+  for (let i = 1; i <= numStops; i++) {
+    const legIndex = Math.floor(stopInterval * i);
+    if (legs[legIndex]) {
+      stopPoints.push({
+        lat: legs[legIndex].endLocation.latLng.latitude,
+        lng: legs[legIndex].endLocation.latLng.longitude,
+      });
+    }
+  }
 
-        for (let i = 1; i <= numStops; i++) {
-          const index = Math.floor(segmentDistance * i);
-          if (path[index]) {
-            stopPoints.push({
-              lat: path[index].lat(),
-              lng: path[index].lng(),
-            });
-          }
-        }
-
-        resolve(stopPoints);
-      }
-    );
-  });
+  return stopPoints;
 }
 
 /**

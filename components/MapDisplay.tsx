@@ -2,7 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useGoogleMaps } from "@/hooks/useGoogleMaps";
-import { calculateRoute, getRouteTotals } from "@/lib/google-maps";
+import {
+  calculateRoute,
+  getRouteTotals,
+  convertToDirectionsResult,
+  type RoutesApiResponse
+} from "@/lib/google-maps";
 import { formatDistance, formatDuration } from "@/lib/utils";
 
 interface Waypoint {
@@ -19,6 +24,7 @@ interface MapDisplayProps {
   avoidHighways?: boolean;
   avoidTolls?: boolean;
   onDirectionsLoaded?: (result: google.maps.DirectionsResult) => void;
+  onRoutesApiDataLoaded?: (result: RoutesApiResponse) => void;
 }
 
 export function MapDisplay({
@@ -28,10 +34,11 @@ export function MapDisplay({
   avoidHighways = false,
   avoidTolls = false,
   onDirectionsLoaded,
+  onRoutesApiDataLoaded,
 }: MapDisplayProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<google.maps.Map | null>(null);
-  const directionsRendererRef = useRef<google.maps.DirectionsRenderer | null>(null);
+  const polylineRef = useRef<google.maps.Polyline | null>(null);
 
   const { isLoaded, error } = useGoogleMaps();
   const [routeInfo, setRouteInfo] = useState<{
@@ -54,40 +61,85 @@ export function MapDisplay({
 
     mapInstanceRef.current = map;
 
-    // Initialize directions renderer
-    const directionsRenderer = new google.maps.DirectionsRenderer({
-      map,
-      suppressMarkers: false,
-      polylineOptions: {
-        strokeColor: "#3B82F6",
-        strokeWeight: 5,
-        strokeOpacity: 0.8,
-      },
-    });
-
-    directionsRendererRef.current = directionsRenderer;
-
     // Calculate and display route
     const displayRoute = async () => {
       setIsCalculating(true);
       try {
-        const result = await calculateRoute(
+        const routesApiResult = await calculateRoute(
           { lat: origin.lat, lng: origin.lng },
           { lat: destination.lat, lng: destination.lng },
           waypoints.map((wp) => ({ lat: wp.lat, lng: wp.lng })),
           { avoidHighways, avoidTolls }
         );
 
-        if (result && directionsRenderer) {
-          directionsRenderer.setDirections(result);
-
+        if (routesApiResult) {
           // Get route totals
-          const totals = getRouteTotals(result);
+          const totals = getRouteTotals(routesApiResult);
           setRouteInfo(totals);
 
-          // Notify parent component
+          // Decode and display polyline on the map
+          const encodedPolyline = routesApiResult.routes[0]?.polyline?.encodedPolyline;
+          if (encodedPolyline) {
+            const decodedPath = google.maps.geometry.encoding.decodePath(encodedPolyline);
+
+            // Clear previous polyline
+            if (polylineRef.current) {
+              polylineRef.current.setMap(null);
+            }
+
+            // Draw new polyline
+            const polyline = new google.maps.Polyline({
+              path: decodedPath,
+              geodesic: true,
+              strokeColor: "#3B82F6",
+              strokeOpacity: 0.8,
+              strokeWeight: 5,
+              map,
+            });
+            polylineRef.current = polyline;
+
+            // Add markers for origin and destination
+            new google.maps.Marker({
+              position: { lat: origin.lat, lng: origin.lng },
+              map,
+              label: "A",
+              title: origin.name,
+            });
+
+            new google.maps.Marker({
+              position: { lat: destination.lat, lng: destination.lng },
+              map,
+              label: "B",
+              title: destination.name,
+            });
+
+            // Add markers for waypoints
+            waypoints.forEach((wp, index) => {
+              new google.maps.Marker({
+                position: { lat: wp.lat, lng: wp.lng },
+                map,
+                label: `${index + 1}`,
+                title: wp.name,
+              });
+            });
+
+            // Fit bounds to show entire route
+            const bounds = new google.maps.LatLngBounds();
+            decodedPath.forEach((point) => bounds.extend(point));
+            map.fitBounds(bounds);
+          }
+
+          // Notify parent components
+          if (onRoutesApiDataLoaded) {
+            onRoutesApiDataLoaded(routesApiResult);
+          }
+
+          // For backward compatibility, convert to DirectionsResult
           if (onDirectionsLoaded) {
-            onDirectionsLoaded(result);
+            const directionsResult = convertToDirectionsResult(routesApiResult);
+            if (directionsResult) {
+              onDirectionsLoaded(directionsResult);
+            }
           }
         }
       } catch (err) {
@@ -101,11 +153,11 @@ export function MapDisplay({
 
     // Cleanup
     return () => {
-      if (directionsRendererRef.current) {
-        directionsRendererRef.current.setMap(null);
+      if (polylineRef.current) {
+        polylineRef.current.setMap(null);
       }
     };
-  }, [isLoaded, origin, destination, waypoints, avoidHighways, avoidTolls]);
+  }, [isLoaded, origin, destination, waypoints, avoidHighways, avoidTolls, onDirectionsLoaded, onRoutesApiDataLoaded]);
 
   if (error) {
     return (

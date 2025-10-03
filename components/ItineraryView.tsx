@@ -2,14 +2,19 @@
 
 import { OptimizedRoute } from "@/types";
 import { formatDistance, formatDuration, formatDate, formatTime } from "@/lib/utils";
-import { Calendar, Clock, MapPin, Moon, Sun } from "lucide-react";
+import { Calendar, Clock, MapPin, Moon, Sun, Download, Share2, FileText } from "lucide-react";
+import { useState } from "react";
 
 interface ItineraryViewProps {
   optimizedRoute: OptimizedRoute;
+  onExportPDF?: () => void;
+  onExportCalendar?: () => void;
+  onShare?: () => void;
 }
 
-export function ItineraryView({ optimizedRoute }: ItineraryViewProps) {
+export function ItineraryView({ optimizedRoute, onExportPDF, onExportCalendar, onShare }: ItineraryViewProps) {
   const { stops, totalDistance, totalDuration, drivingDays } = optimizedRoute;
+  const [showExportMenu, setShowExportMenu] = useState(false);
 
   // Group stops by day
   const stopsByDay: { [key: number]: typeof stops } = {};
@@ -24,7 +29,57 @@ export function ItineraryView({ optimizedRoute }: ItineraryViewProps) {
     <div className="space-y-6">
       {/* Summary Card */}
       <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl shadow-lg p-6">
-        <h2 className="text-2xl font-bold mb-4">Your Optimized Trip Plan</h2>
+        <div className="flex items-start justify-between mb-4">
+          <h2 className="text-2xl font-bold">Your Optimized Trip Plan</h2>
+
+          {/* Export Button */}
+          <div className="relative">
+            <button
+              onClick={() => setShowExportMenu(!showExportMenu)}
+              className="flex items-center gap-2 px-4 py-2 bg-white text-blue-700 rounded-lg hover:bg-blue-50 transition-colors font-medium"
+            >
+              <Download className="h-4 w-4" />
+              Export
+            </button>
+
+            {/* Export Dropdown */}
+            {showExportMenu && (
+              <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl border border-gray-200 py-2 z-10">
+                <button
+                  onClick={() => {
+                    onExportPDF?.();
+                    setShowExportMenu(false);
+                  }}
+                  className="w-full px-4 py-2 text-left text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+                >
+                  <FileText className="h-4 w-4" />
+                  Export as PDF
+                </button>
+                <button
+                  onClick={() => {
+                    onExportCalendar?.();
+                    setShowExportMenu(false);
+                  }}
+                  className="w-full px-4 py-2 text-left text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+                >
+                  <Calendar className="h-4 w-4" />
+                  Add to Calendar
+                </button>
+                <button
+                  onClick={() => {
+                    onShare?.();
+                    setShowExportMenu(false);
+                  }}
+                  className="w-full px-4 py-2 text-left text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+                >
+                  <Share2 className="h-4 w-4" />
+                  Share Link
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
             <p className="text-blue-100 text-sm mb-1">Total Distance</p>
